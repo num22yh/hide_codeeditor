@@ -25,25 +25,24 @@ public class FileController {
     @Autowired
     private ProjectService projectService;
 
-    // 파일 생성
     @PostMapping
     public ResponseEntity<FileDto> createFile(@PathVariable("projectId") Long projectId, @RequestParam("file_name") String name, @RequestParam("file_type") String fileType) {
         if (name == null || name.trim().isEmpty()) {
             throw new BadRequestException("File name cannot be null or empty"); // 파일 이름 없음
         }
         if (fileType == null || fileType.trim().isEmpty()) {
-            throw new BadRequestException("File type cannot be null or empty"); //파일 확장자(타입) 없음
+            throw new BadRequestException("File type cannot be null or empty"); // 파일 확장자(타입) 없음
         }
 
         Optional<ProjectEntity> projectOptional = projectService.getProjectEntityById(projectId);
         if (projectOptional.isPresent()) {
-            if (fileService.isFileExists(name, projectId)) {
-                throw new ConflictException("A file with the same name already exists."); // 같은 이름의 파일 존재
+            if (fileService.isFileExists(name, fileType, projectId)) {
+                throw new ConflictException("A file with the same name and type already exists."); // 같은 이름과 타입의 파일 존재
             }
             FileDto file = fileService.createFile(name, "", fileType, projectOptional.get());
             return ResponseEntity.status(HttpStatus.CREATED).body(file);
         } else {
-            throw new ResourceNotFoundException("Project not found with id: " + projectId); //해당하는 프로젝트 id 없음
+            throw new ResourceNotFoundException("Project not found with id: " + projectId); // 해당하는 프로젝트 ID 없음
         }
     }
 
@@ -73,32 +72,39 @@ public class FileController {
     @PutMapping("/{fileId}")
     public ResponseEntity<FileDto> updateFile(@PathVariable("projectId") Long projectId, @PathVariable("fileId") Long fileId, @RequestBody FileDto fileDto) {
         if (!projectService.getProjectEntityById(projectId).isPresent()) {
-            throw new ResourceNotFoundException("Project not found with id: " + projectId); //프로젝트 id 일치하지 않을 시 예외처리
+            throw new ResourceNotFoundException("Project not found with id: " + projectId); // 프로젝트 id 일치하지 않을 시 예외처리
         }
 
         Optional<FileEntity> fileEntityOptional = fileService.getFileEntityByIdAndProjectId(fileId, projectId);
         if (!fileEntityOptional.isPresent()) {
-            throw new ResourceNotFoundException("File not found with id: " + fileId + " in project with id: " + projectId); //해당 프로젝트 내에 파일 id 없을 시 예외처리
+            throw new ResourceNotFoundException("File not found with id: " + fileId + " in project with id: " + projectId); // 해당 프로젝트 내에 파일 id 없을 시 예외처리
         }
 
         FileEntity fileEntity = fileEntityOptional.get();
 
-        // 파일 이름이 업데이트되려는 경우 같은 프로젝트 내에서 중복 이름 확인
-        if (fileDto.getName() != null && !fileDto.getName().trim().isEmpty() && !fileEntity.getName().equals(fileDto.getName())) {
-            if (fileService.isFileExists(fileDto.getName(), projectId)) {
-                throw new ConflictException("A file with the same name already exists."); // 같은 이름의 파일이 이미 존재할 경우 예외 처리
+        // 파일 이름이나 확장자가 업데이트되려는 경우 같은 프로젝트 내에서 " 파일 이름 + 확장자 " 가 같을 경우 예외처리
+        boolean isNameChanged = fileDto.getName() != null && !fileDto.getName().trim().isEmpty() && !fileEntity.getName().equals(fileDto.getName());
+        boolean isFileTypeChanged = fileDto.getFileType() != null && !fileDto.getFileType().trim().isEmpty() && !fileEntity.getFileType().equals(fileDto.getFileType());
+
+        if (isNameChanged || isFileTypeChanged) {
+            String newName = isNameChanged ? fileDto.getName() : fileEntity.getName();
+            String newFileType = isFileTypeChanged ? fileDto.getFileType() : fileEntity.getFileType();
+
+            if (fileService.isFileExists(newName, newFileType, projectId)) {
+                throw new ConflictException("A file with the same name and type already exists."); // 같은 이름과 타입의 파일이 이미 존재할 경우 예외 처리
             }
-            fileEntity.setName(fileDto.getName());
+
+            if (isNameChanged) {
+                fileEntity.setName(fileDto.getName());
+            }
+            if (isFileTypeChanged) {
+                fileEntity.setFileType(fileDto.getFileType());
+            }
         }
 
         // 파일 내용 업데이트
         if (fileDto.getContent() != null) {
             fileEntity.setContent(fileDto.getContent());
-        }
-
-        // 파일 확장자 업데이트
-        if (fileDto.getFileType() != null && !fileDto.getFileType().trim().isEmpty()) {
-            fileEntity.setFileType(fileDto.getFileType());
         }
 
         FileDto updatedFile = fileService.saveFile(fileEntity);
@@ -119,5 +125,18 @@ public class FileController {
 
         fileService.deleteFile(fileId);
         return ResponseEntity.noContent().build();
+    }
+
+    // 파일 실행
+    @PostMapping("/{fileId}/run")
+    public ResponseEntity<String> executeFile(@PathVariable("projectId") Long projectId, @PathVariable("fileId") Long fileId) {
+        try {
+            String result = fileService.executeFile(fileId, projectId);
+            return ResponseEntity.ok(result);
+        } catch (ResourceNotFoundException e) {
+            throw new ResourceNotFoundException(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error executing file: " + e.getMessage());
+        }
     }
 }

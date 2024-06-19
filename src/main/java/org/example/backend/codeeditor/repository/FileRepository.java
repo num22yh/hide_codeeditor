@@ -11,4 +11,6 @@ public interface FileRepository extends JpaRepository<FileEntity, Long> {
     Optional<FileEntity> findByNameAndProjectId(String name, Long projectId);
 
     Optional<FileEntity> findByIdAndProjectId(Long id, Long projectId); // 파일id + 프로젝트 id로 파일 찾기
+
+    boolean existsByNameAndFileTypeAndProjectId(String name, String fileType, Long projectId);
 }
